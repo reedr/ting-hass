@@ -63,6 +63,32 @@ def test_values_are_rounded() -> None:
     asyncio.run(run())
 
 
+def test_passthrough_numbers_are_rounded() -> None:
+    """Ting's own high/low and hi-fi are rounded like the window statistics."""
+
+    async def run() -> None:
+        published, _, agg = _collect()
+        agg.submit(
+            {
+                "voltage": 120.0,
+                "voltage_high": 123.83934373406,
+                "voltage_low": 119.120649260611,
+                "hifi": 74.0412,
+                "last_update": "2026-09-28T04:00:59+00:00",
+            }
+        )
+        await asyncio.sleep(0.25)
+        agg.cancel()
+        data = published[0]
+        assert data["voltage_high"] == 123.8
+        assert data["voltage_low"] == 119.1
+        assert data["hifi"] == 74.0
+        # Non-numeric passthrough is untouched.
+        assert data["last_update"] == "2026-09-28T04:00:59+00:00"
+
+    asyncio.run(run())
+
+
 def test_empty_window_publishes_nothing() -> None:
     """Without samples there is nothing to report."""
 

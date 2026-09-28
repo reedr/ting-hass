@@ -18,8 +18,13 @@ import time
 from typing import Any
 
 # Samples that carry more than the voltage itself; the latest of these is
-# passed through unchanged so the existing sensors keep working.
+# passed through so the existing sensors keep working.
 PASSTHROUGH_KEYS = ("voltage_high", "voltage_low", "hifi", "last_update", "raw")
+
+# Passed-through numbers rounded like the window statistics.  Ting reports
+# VoltageHi / VoltageLo to ~12 decimal places, so unrounded they change on
+# every publish and each one writes a recorder row per window.
+ROUNDED_PASSTHROUGH_KEYS = ("voltage_high", "voltage_low", "hifi")
 
 
 @dataclass(frozen=True)
@@ -222,8 +227,13 @@ class VoltageWindowAggregator:
     def _flush(self) -> None:
         if self._count == 0:
             return
+        passthrough = dict(self._passthrough)
+        for key in ROUNDED_PASSTHROUGH_KEYS:
+            value = passthrough.get(key)
+            if isinstance(value, (int, float)) and not math.isnan(value):
+                passthrough[key] = self._round(float(value))
         data = {
-            **self._passthrough,
+            **passthrough,
             "voltage": self._round(self._sum / self._count),
             "voltage_min": self._round(self._min),
             "voltage_max": self._round(self._max),
