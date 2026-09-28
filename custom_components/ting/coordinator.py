@@ -12,7 +12,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .aggregator import AggregatorConfig, VoltageWindowAggregator
-from .api import TingApi, TingDevice, extract_device_diagnostics
+from .api import TingApi, TingDevice, extract_device_diagnostics, extract_notifications
 from .auth import TingAuth
 from .const import (
     BAND_HYSTERESIS,
@@ -120,13 +120,21 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
 
 class TingProfileCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
-    """Polling coordinator for low-rate Ting profile diagnostics."""
+    """Polling coordinator for low-rate Ting profile diagnostics and alerts.
+
+    Each poll fetches the user profile and, best-effort, the notification
+    history.  ``new_alerts`` holds, per device, the notifications first seen
+    on the latest poll; the alerts event entities fire those.  The first
+    successful notification fetch only seeds what has been seen, so a restart
+    does not replay the backlog.
+    """
 
     def __init__(
         self,
         hass: HomeAssistant,
         api: TingApi,
         initial_user_data: dict[str, Any],
+        initial_notifications: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -135,12 +143,48 @@ class TingProfileCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             update_interval=timedelta(minutes=5),
         )
         self._api = api
+        self._seen_notification_ids: set[str] | None = None
+        self.new_alerts: dict[str, list[dict[str, Any]]] = {}
+        if initial_notifications is not None:
+            self._process_notifications(initial_notifications, initial_user_data)
         self.async_set_updated_data(extract_device_diagnostics(initial_user_data))
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:
-            return extract_device_diagnostics(await self._api.async_get_user())
+            user_data = await self._api.async_get_user()
         except TingAuthError as err:
             raise ConfigEntryAuthFailed("Ting authentication failed") from err
         except (TingConnectionError, TingResponseError) as err:
             raise UpdateFailed(f"Could not update Ting profile: {err}") from err
+
+        # note: alerts are best-effort.  A failed fetch leaves the profile
+        #       entities updating; anything missed is still in the history
+        #       next poll and fires then.
+        try:
+            notifications = await self._api.async_get_notifications()
+        except TingAuthError as err:
+            raise ConfigEntryAuthFailed("Ting authentication failed") from err
+        except (TingConnectionError, TingResponseError) as err:
+            _LOGGER.debug("Could not fetch Ting notifications: %s", err)
+            self.new_alerts = {}
+        else:
+            self._process_notifications(notifications, user_data)
+
+        return extract_device_diagnostics(user_data)
+
+    def _process_notifications(
+        self, notifications: list[dict[str, Any]], user_data: dict[str, Any]
+    ) -> None:
+        grouped = extract_notifications(notifications, user_data)
+        all_ids = {note["id"] for notes in grouped.values() for note in notes}
+        if self._seen_notification_ids is None:
+            self._seen_notification_ids = all_ids
+            self.new_alerts = {}
+            return
+        seen = self._seen_notification_ids
+        self.new_alerts = {
+            serial: new
+            for serial, notes in grouped.items()
+            if (new := [note for note in notes if note["id"] not in seen])
+        }
+        seen |= all_ids

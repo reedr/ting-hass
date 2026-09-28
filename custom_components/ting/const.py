@@ -6,7 +6,7 @@ DOMAIN = "ting"
 
 CONF_REFRESH_TOKEN = "refresh_token"
 
-PLATFORMS = ["binary_sensor", "sensor"]
+PLATFORMS = ["binary_sensor", "event", "sensor"]
 
 COGNITO_REGION = "us-east-1"
 COGNITO_USER_POOL_ID = "us-east-1_trW4gH661"
@@ -49,3 +49,17 @@ DEFAULT_HOLD = 60
 BAND_HYSTERESIS = 1.0
 
 EVENT_VOLTAGE_EXCURSION = "ting_voltage_excursion"
+
+# Ting notification eventType values the Alerts event entity fires by name.
+# Anything else fires as "unknown", with Ting's value in raw_event_type.
+ALERT_EVENT_TYPES = [
+    "FireHazard",
+    "FrozenPipe",
+    "PowerOutage",
+    "PowerOutageAndRestored",
+    "PowerRestored",
+    "Sag",
+    "Swell",
+    "WeatherAlert",
+    "unknown",
+]

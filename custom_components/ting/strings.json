@@ -52,6 +52,26 @@
         "name": "Voltage out of range"
       }
     },
+    "event": {
+      "alerts": {
+        "name": "Alerts",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "FireHazard": "Fire hazard",
+              "FrozenPipe": "Frozen pipe",
+              "PowerOutage": "Power outage",
+              "PowerOutageAndRestored": "Power outage and restored",
+              "PowerRestored": "Power restored",
+              "Sag": "Voltage sag",
+              "Swell": "Voltage swell",
+              "WeatherAlert": "Weather alert",
+              "unknown": "Other"
+            }
+          }
+        }
+      }
+    },
     "sensor": {
       "voltage": {
         "name": "Voltage"

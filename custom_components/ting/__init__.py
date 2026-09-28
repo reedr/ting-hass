@@ -60,7 +60,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         device.serial_number: TingRealtimeCoordinator(hass, entry, auth, device)
         for device in devices
     }
-    profile_coordinator = TingProfileCoordinator(hass, api, user_data)
+    # note: seeds the alerts already in Ting's history so they are not fired
+    #       as new.  Best-effort; without it the first poll seeds instead.
+    try:
+        notifications = await api.async_get_notifications()
+    except (TingConnectionError, TingResponseError) as err:
+        _LOGGER.debug("Could not fetch Ting notifications at setup: %s", err)
+        notifications = None
+    profile_coordinator = TingProfileCoordinator(hass, api, user_data, notifications)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = TingRuntimeData(
         auth=auth,
         api=api,

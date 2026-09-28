@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import logging
 from typing import Any
@@ -41,8 +42,23 @@ class TingApi:
 
     async def async_get_user(self) -> dict[str, Any]:
         """Fetch the Ting user profile and devices."""
+        data = await self._async_get_json(f"/api/v1/Users/{self._auth.user_id}")
+        if not isinstance(data, dict):
+            raise TingResponseError("Ting user response was not an object")
+        return data
+
+    async def async_get_notifications(self) -> list[dict[str, Any]]:
+        """Fetch the account's recent notifications (the Ting app's alerts)."""
+        data = await self._async_get_json(
+            f"/api/v1/Notifications/history/{self._auth.user_id}"
+        )
+        if not isinstance(data, list):
+            raise TingResponseError("Ting notification response was not a list")
+        return [item for item in data if isinstance(item, dict)]
+
+    async def _async_get_json(self, path: str) -> Any:
         await self._auth.async_ensure_tokens()
-        url = f"{TING_API_BASE}/api/v1/Users/{self._auth.user_id}"
+        url = f"{TING_API_BASE}{path}"
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {self._auth.id_token}",
@@ -65,12 +81,9 @@ class TingApi:
             raise TingResponseError(f"Ting API returned HTTP {response.status}")
 
         try:
-            data = json.loads(text)
+            return json.loads(text)
         except json.JSONDecodeError as err:
             raise TingResponseError("Ting API returned a non-JSON response") from err
-        if not isinstance(data, dict):
-            raise TingResponseError("Ting user response was not an object")
-        return data
 
 
 def extract_devices(user_data: Mapping[str, Any], default_serial: str | None = None) -> list[TingDevice]:
@@ -169,6 +182,72 @@ def extract_device_diagnostics(user_data: Mapping[str, Any]) -> dict[str, dict[s
             device_diagnostics["power_quality_hazard"] = sites[site_id]
 
     return diagnostics
+
+
+def extract_notifications(
+    notifications: Iterable[Mapping[str, Any]],
+    user_data: Mapping[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    """Normalize Ting notifications and group them by device serial, oldest first.
+
+    A notification names its device by serialNumber.  One without a serial
+    (a site-level alert) goes to every device at its siteId, or to every
+    device when it names neither.  Notifications without an id are dropped,
+    since the id is what tells a new alert from one already seen.
+    """
+    device_sites: dict[str, str | None] = {}
+    for item, _parents in _walk_dicts(user_data):
+        serial = _first_str(item, "serialNumber", "SerialNumber", "serial_number")
+        if serial:
+            device_sites.setdefault(serial, _identifier(item.get("siteId")))
+
+    grouped: dict[str, list[dict[str, Any]]] = {serial: [] for serial in device_sites}
+    for item in notifications:
+        note_id = _identifier(item.get("id"))
+        if note_id is None:
+            continue
+        note = {
+            "id": note_id,
+            "event_type": _first_str(item, "eventType") or "unknown",
+            "category": _first_str(item, "eventCategory"),
+            "title": _first_str(item, "title"),
+            "subtitle": _first_str(item, "subtitle"),
+            "message": _first_str(item, "message"),
+            "timestamp": _parse_iso(item.get("eventTimestampLocal")),
+            "sent": _parse_iso(item.get("sentUtc")),
+            "acknowledged": item.get("isAcknowledged") is True,
+            "cleared": item.get("isCleared") is True,
+        }
+        serial = _first_str(item, "serialNumber")
+        site_id = _identifier(item.get("siteId"))
+        if serial is not None:
+            targets = [serial] if serial in grouped else []
+        elif site_id is not None:
+            targets = [s for s, site in device_sites.items() if site == site_id]
+        else:
+            targets = list(grouped)
+        for target in targets:
+            grouped[target].append(note)
+
+    for notes in grouped.values():
+        notes.sort(key=_notification_sort_key)
+    return grouped
+
+
+def _notification_sort_key(note: Mapping[str, Any]) -> datetime:
+    return note["sent"] or note["timestamp"] or datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 # Ting's two hazard detectors, each reported under fireHazardStatus with a

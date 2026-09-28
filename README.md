@@ -86,6 +86,21 @@ account profile payloads are not stored as coordinator data. If Ting omits a
 value or returns it with an unexpected type, the corresponding entity is
 unavailable rather than reporting a misleading safe state.
 
+### Alerts
+
+Each Ting has an **Alerts** event entity that fires once for every new
+notification Ting sends about it, the same alerts the Ting app shows:
+`FireHazard`, `FrozenPipe`, `PowerOutage`, `PowerOutageAndRestored`,
+`PowerRestored`, `Sag`, `Swell` and `WeatherAlert`. Any other type fires as
+`unknown`. The event carries `title`, `subtitle`, `message`, `category`,
+`raw_event_type`, `timestamp`, `notification_id`, `acknowledged` and
+`cleared`.
+
+The notification history is fetched with each 5-minute profile poll. Alerts
+already in the history when Home Assistant starts are not replayed. A power
+outage alert only arrives after power and internet are restored, so it is a
+record rather than a live alarm.
+
 ## Install with HACS
 
 1. Add this repository as a custom HACS integration repository.
