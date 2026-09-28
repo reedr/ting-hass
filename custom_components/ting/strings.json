@@ -38,6 +38,9 @@
       },
       "learning_mode": {
         "name": "Learning mode"
+      },
+      "voltage_out_of_range": {
+        "name": "Voltage out of range"
       }
     },
     "sensor": {
@@ -58,7 +61,38 @@
       },
       "hazard_message": {
         "name": "Hazard message"
+      },
+      "voltage_min": {
+        "name": "Voltage min (interval)"
+      },
+      "voltage_max": {
+        "name": "Voltage max (interval)"
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Voltage statistics",
+        "description": "Ting streams about four voltage samples per second. Each publish window is summarised as mean, min and max. While the voltage is outside the band, windows shorten to the fast interval, and the Voltage out of range sensor turns on at the first out-of-band sample.",
+        "data": {
+          "interval": "Publish interval",
+          "fast_interval": "Fast interval (out of band)",
+          "band_low": "Band low",
+          "band_high": "Band high",
+          "hold": "Hold time back in band"
+        },
+        "data_description": {
+          "interval": "Normal window length, aligned to the clock. Longer means fewer recorder rows.",
+          "fast_interval": "Window length while the voltage is outside the band. Must not exceed the publish interval.",
+          "band_low": "Samples below this start fast mode. ANSI C84.1 Range A for 120 V is 114 V.",
+          "band_high": "Samples above this start fast mode. ANSI C84.1 Range A for 120 V is 126 V.",
+          "hold": "Fast mode ends once the voltage has stayed at least 1 V inside the band for this long."
+        }
+      }
+    },
+    "error": {
+      "invalid_options": "Invalid combination: band low must be below band high with at least 2 V between them, the fast interval must not exceed the publish interval, and times must not be negative."
     }
   }
 }

@@ -34,14 +34,38 @@ class TingSensorEntityDescription(SensorEntityDescription):
 
 
 REALTIME_SENSORS: tuple[TingSensorEntityDescription, ...] = (
+    # note: the MEAN of the samples in each publish window (see aggregator.py),
+    #       rounded to 0.1 V.  The key is unchanged so existing history and
+    #       long-term statistics carry on.
     TingSensorEntityDescription(
         key="voltage",
         translation_key="voltage",
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         device_class=SensorDeviceClass.VOLTAGE,
         state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=2,
+        suggested_display_precision=1,
         value_fn=lambda data: data.get("voltage"),
+    ),
+    # note: lowest / highest sample within the publish window.  Distinct from
+    #       voltage_low / voltage_high below, which are Ting's own VoltageLo /
+    #       VoltageHi datapoints passed through unchanged.
+    TingSensorEntityDescription(
+        key="voltage_min",
+        translation_key="voltage_min",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda data: data.get("voltage_min"),
+    ),
+    TingSensorEntityDescription(
+        key="voltage_max",
+        translation_key="voltage_max",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda data: data.get("voltage_max"),
     ),
     TingSensorEntityDescription(
         key="hifi",
@@ -143,15 +167,20 @@ class TingRealtimeSensor(CoordinatorEntity[TingRealtimeCoordinator], TingSensor)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return debug-friendly raw attributes on the primary voltage sensor."""
+        """Return slow-changing context on the primary voltage sensor.
+
+        note: only attributes that rarely change.  Any attribute that changes
+              every publish (a sample timestamp, the sample count) forces a
+              new recorder row even when the rounded voltage is unchanged,
+              which defeats the rounding.  The sample time is available as
+              the Last update sensor.
+        """
         if self.entity_description.key != "voltage":
             return None
-        raw = (self.coordinator.data or {}).get("raw")
-        if not isinstance(raw, dict):
-            return None
+        data = self.coordinator.data or {}
         return {
             "station_id": self.coordinator.device.serial_number,
-            "data_time_utc": raw.get("DataTimeUtc"),
+            "window_seconds": data.get("window"),
         }
 
 

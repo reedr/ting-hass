@@ -6,16 +6,55 @@ Experimental HACS custom integration for Whisker Labs Ting monitors.
 
 The integration signs in with the same Cognito user pool used by the Ting mobile app, discovers Ting devices from the account profile, and subscribes to Ting's realtime SignalR websocket stream.
 Realtime SignalR transport is handled with `pysignalr`.
-The stream is read continuously, while Home Assistant receives the latest
-reading every five seconds. This coalescing preserves availability detection
-without writing four display samples per second to Recorder.
+
+### Interval statistics
+
+Ting streams about four voltage samples per second. Rather than forwarding the
+latest sample every few seconds (which would miss a short sag between
+publishes), the integration summarises each publish window as **mean, min and
+max** and publishes once per window, aligned to the clock so several Ting
+devices line up in history. Values are rounded to 0.1 V, so Home Assistant
+skips writing a new state when the voltage has not changed.
+
+While the voltage is outside a configurable band, windows shorten to a fast
+interval. The first out-of-band sample is published immediately, so
+automations can react within a sample, and **Voltage out of range** turns on.
+Fast mode ends, and the sensor turns off, once the voltage has stayed at least
+1 V inside the band for the hold time. A `ting_voltage_excursion` event then
+reports the excursion once:
+
+| Field | Meaning |
+|---|---|
+| `start`, `end` | First and last out-of-band sample (UTC, ISO 8601) |
+| `duration` | Seconds between them; 0 for a single-sample dip |
+| `min`, `max` | Extreme voltages during the excursion |
+| `sag`, `swell` | Whether it went below the band, above it, or both |
+| `band_low`, `band_high` | The band in force |
+| `serial_number`, `device_name` | Which Ting |
+
+Options (**Settings > Devices & services > Ting > Configure**):
+
+| Option | Default | |
+|---|---|---|
+| Publish interval | 60 s | Normal window length |
+| Fast interval | 5 s | Window length while out of band |
+| Band low / high | 114 / 126 V | ANSI C84.1 Range A for 120 V nominal |
+| Hold time | 60 s | Time back in band before fast mode ends |
+
+Saving the options reloads the integration. A window with no samples publishes
+nothing; if the stream itself stops, the realtime entities become unavailable.
+
+Ting cannot report a power outage: it is powered by the circuit it measures,
+so during an outage its entities simply become unavailable, the same as a
+cloud or internet outage.
 
 Realtime sensors:
 
-- Voltage
+- Voltage (window mean)
+- Voltage min (interval) and Voltage max (interval)
+- Voltage out of range (binary sensor, problem)
 - Hi-Fi, from Ting's `AveragePeaksMax` datapoint
-- Voltage high
-- Voltage low
+- Voltage high and Voltage low, Ting's own `VoltageHi` / `VoltageLo` datapoints
 - Last update
 
 REST profile safety entities, refreshed every 5 minutes:

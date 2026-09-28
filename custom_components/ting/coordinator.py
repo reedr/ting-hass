@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -11,14 +11,45 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from .aggregator import AggregatorConfig, VoltageWindowAggregator
 from .api import TingApi, TingDevice, extract_device_diagnostics
 from .auth import TingAuth
-from .const import REALTIME_PUBLISH_INTERVAL
+from .const import (
+    BAND_HYSTERESIS,
+    CONF_BAND_HIGH,
+    CONF_BAND_LOW,
+    CONF_FAST_INTERVAL,
+    CONF_HOLD,
+    CONF_INTERVAL,
+    DEFAULT_BAND_HIGH,
+    DEFAULT_BAND_LOW,
+    DEFAULT_FAST_INTERVAL,
+    DEFAULT_HOLD,
+    DEFAULT_INTERVAL,
+    EVENT_VOLTAGE_EXCURSION,
+)
 from .exceptions import TingAuthError, TingConnectionError, TingResponseError
 from .signalr import TingSignalRClient
-from .throttle import LatestValueThrottle
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def aggregator_config(options: dict[str, Any]) -> AggregatorConfig:
+    """Build the interval statistics settings from config entry options."""
+    return AggregatorConfig(
+        interval=float(options.get(CONF_INTERVAL, DEFAULT_INTERVAL)),
+        fast_interval=float(options.get(CONF_FAST_INTERVAL, DEFAULT_FAST_INTERVAL)),
+        band_low=float(options.get(CONF_BAND_LOW, DEFAULT_BAND_LOW)),
+        band_high=float(options.get(CONF_BAND_HIGH, DEFAULT_BAND_HIGH)),
+        hold=float(options.get(CONF_HOLD, DEFAULT_HOLD)),
+        hysteresis=BAND_HYSTERESIS,
+    )
+
+
+def _iso(ts: float | None) -> str | None:
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat()
 
 
 class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -36,8 +67,11 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             callback=self._async_handle_update,
             stale_callback=self._async_handle_stale,
         )
-        self._realtime_throttle = LatestValueThrottle(
-            REALTIME_PUBLISH_INTERVAL, self.async_set_updated_data
+        self.aggregator_config = aggregator_config(dict(entry.options))
+        self._aggregator = VoltageWindowAggregator(
+            self.aggregator_config,
+            self.async_set_updated_data,
+            self._async_handle_excursion,
         )
         # No data yet: leave entities unavailable until the stream delivers.
         self.last_update_success = False
@@ -55,18 +89,33 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             await self._client.async_stop()
         finally:
-            self._realtime_throttle.cancel()
+            self._aggregator.cancel()
 
     async def _async_handle_update(self, data: dict[str, Any]) -> None:
-        self._realtime_throttle.submit(data)
+        self._aggregator.submit(data)
+
+    def _async_handle_excursion(self, summary: dict[str, Any]) -> None:
+        """Report a finished out-of-band excursion as one event."""
+        self.hass.bus.async_fire(
+            EVENT_VOLTAGE_EXCURSION,
+            {
+                **summary,
+                "start": _iso(summary.get("start")),
+                "end": _iso(summary.get("end")),
+                "serial_number": self.device.serial_number,
+                "device_name": self.device.name,
+            },
+        )
 
     async def _async_handle_stale(self, err: Exception) -> None:
         """Mark entities unavailable while the stream is down.
 
         Without this, entities hold their last value indefinitely during an
-        outage and history renders a fake flat line instead of a gap.
+        outage and history renders a fake flat line instead of a gap.  Any
+        partial window or open excursion is discarded rather than reported
+        from before the gap.
         """
-        self._realtime_throttle.cancel()
+        self._aggregator.cancel()
         self.async_set_update_error(UpdateFailed(str(err)))
 
 

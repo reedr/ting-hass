@@ -9,12 +9,28 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .aggregator import AggregatorConfig
 from .api import TingApi, extract_devices
 from .auth import TingAuth
-from .const import CONF_REFRESH_TOKEN, DOMAIN
+from .const import (
+    BAND_HYSTERESIS,
+    CONF_BAND_HIGH,
+    CONF_BAND_LOW,
+    CONF_FAST_INTERVAL,
+    CONF_HOLD,
+    CONF_INTERVAL,
+    CONF_REFRESH_TOKEN,
+    DEFAULT_BAND_HIGH,
+    DEFAULT_BAND_LOW,
+    DEFAULT_FAST_INTERVAL,
+    DEFAULT_HOLD,
+    DEFAULT_INTERVAL,
+    DOMAIN,
+)
 from .exceptions import TingAuthError, TingConnectionError, TingResponseError
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,10 +59,89 @@ async def _validate_input(hass: HomeAssistant, user_input: dict[str, str]) -> di
     }
 
 
+def _seconds(minimum: int, maximum: int) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=minimum,
+            max=maximum,
+            step=1,
+            unit_of_measurement="s",
+            mode=selector.NumberSelectorMode.BOX,
+        )
+    )
+
+
+def _volts(minimum: int, maximum: int) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=minimum,
+            max=maximum,
+            step=0.5,
+            unit_of_measurement="V",
+            mode=selector.NumberSelectorMode.BOX,
+        )
+    )
+
+
+class TingOptionsFlow(config_entries.OptionsFlowWithReload):
+    """Interval statistics options; saving reloads the entry."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Show and validate the options form."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                AggregatorConfig(
+                    interval=user_input[CONF_INTERVAL],
+                    fast_interval=user_input[CONF_FAST_INTERVAL],
+                    band_low=user_input[CONF_BAND_LOW],
+                    band_high=user_input[CONF_BAND_HIGH],
+                    hold=user_input[CONF_HOLD],
+                    hysteresis=BAND_HYSTERESIS,
+                )
+            except ValueError:
+                errors["base"] = "invalid_options"
+            else:
+                return self.async_create_entry(data=user_input)
+
+        current = {**self.config_entry.options, **(user_input or {})}
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_INTERVAL, default=current.get(CONF_INTERVAL, DEFAULT_INTERVAL)
+                ): _seconds(5, 3600),
+                vol.Required(
+                    CONF_FAST_INTERVAL,
+                    default=current.get(CONF_FAST_INTERVAL, DEFAULT_FAST_INTERVAL),
+                ): _seconds(1, 300),
+                vol.Required(
+                    CONF_BAND_LOW, default=current.get(CONF_BAND_LOW, DEFAULT_BAND_LOW)
+                ): _volts(90, 130),
+                vol.Required(
+                    CONF_BAND_HIGH, default=current.get(CONF_BAND_HIGH, DEFAULT_BAND_HIGH)
+                ): _volts(100, 150),
+                vol.Required(CONF_HOLD, default=current.get(CONF_HOLD, DEFAULT_HOLD)): _seconds(
+                    0, 3600
+                ),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+
+
 class TingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a Ting config flow."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> TingOptionsFlow:
+        """Return the options flow."""
+        return TingOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, str] | None = None) -> config_entries.FlowResult:
         """Handle the initial step."""
