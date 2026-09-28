@@ -155,11 +155,62 @@ def extract_device_diagnostics(user_data: Mapping[str, Any]) -> dict[str, dict[s
             if isinstance(hazard_message, str):
                 device_diagnostics["hazard_message"] = hazard_message
 
+            for source, prefix in HAZARD_STATUS_SOURCES:
+                device_diagnostics.update(
+                    _hazard_status_diagnostics(fire_hazard_status.get(source), prefix)
+                )
+
+        frozen_pipe = item.get("hasFrozenPipe")
+        if isinstance(frozen_pipe, bool):
+            device_diagnostics["frozen_pipe"] = frozen_pipe
+
         site_id = _identifier(item.get("siteId"))
         if site_id is not None and site_id in sites:
             device_diagnostics["power_quality_hazard"] = sites[site_id]
 
     return diagnostics
+
+
+# Ting's two hazard detectors, each reported under fireHazardStatus with a
+# level, a status and a message:
+#   efhStatus - electrical fire hazard (arcing inside the home's wiring)
+#   ufhStatus - utility fire hazard (a fault on the utility side of the meter)
+HAZARD_STATUS_SOURCES = (
+    ("efhStatus", "electrical_fire_hazard"),
+    ("ufhStatus", "utility_fire_hazard"),
+)
+
+
+def _hazard_status_diagnostics(value: Any, prefix: str) -> dict[str, Any]:
+    """Normalize one efhStatus / ufhStatus block.
+
+    note: Ting reports a null level and status when there is no hazard, so a
+          null inside a present block means "no hazard" (level 0, status
+          "none") rather than unknown.  A missing block, or a value of the
+          wrong type, is left out so the entity reads unavailable.
+    """
+    if not isinstance(value, Mapping):
+        return {}
+    result: dict[str, Any] = {}
+
+    level = value.get("level")
+    if level is None:
+        level = 0
+    if isinstance(level, int) and not isinstance(level, bool):
+        result[f"{prefix}_level"] = level
+        result[prefix] = level > 0
+
+    status = value.get("status")
+    if status is None:
+        status = "none"
+    if isinstance(status, str):
+        result[f"{prefix}_status"] = status
+
+    message = value.get("message")
+    if isinstance(message, str):
+        result[f"{prefix}_message"] = message
+
+    return result
 
 
 def _walk_dicts(value: Any, parents: tuple[Mapping[str, Any], ...] = ()) -> Iterable[tuple[Mapping[str, Any], tuple[Mapping[str, Any], ...]]]:

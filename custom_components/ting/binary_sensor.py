@@ -34,6 +34,24 @@ PROFILE_BINARY_SENSORS: tuple[TingBinarySensorEntityDescription, ...] = (
         translation_key="fire_hazard",
         device_class=BinarySensorDeviceClass.SAFETY,
     ),
+    # note: fire_hazard is Ting's overall isFire flag.  The electrical and
+    #       utility detectors report their own levels, and a level above 0
+    #       is a hazard even while isFire is still false.
+    TingBinarySensorEntityDescription(
+        key="electrical_fire_hazard",
+        translation_key="electrical_fire_hazard",
+        device_class=BinarySensorDeviceClass.SAFETY,
+    ),
+    TingBinarySensorEntityDescription(
+        key="utility_fire_hazard",
+        translation_key="utility_fire_hazard",
+        device_class=BinarySensorDeviceClass.SAFETY,
+    ),
+    TingBinarySensorEntityDescription(
+        key="frozen_pipe",
+        translation_key="frozen_pipe",
+        device_class=BinarySensorDeviceClass.COLD,
+    ),
     TingBinarySensorEntityDescription(
         key="power_quality_hazard",
         translation_key="power_quality_hazard",

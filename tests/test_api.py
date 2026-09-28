@@ -30,6 +30,12 @@ def test_extract_device_diagnostics_matches_site() -> None:
             "fire_hazard": False,
             "learning_mode": True,
             "hazard_message": "Synthetic learning message",
+            "electrical_fire_hazard_level": 0,
+            "electrical_fire_hazard": False,
+            "electrical_fire_hazard_status": "none",
+            "utility_fire_hazard_level": 0,
+            "utility_fire_hazard": False,
+            "utility_fire_hazard_status": "none",
             "power_quality_hazard": True,
         }
     }
@@ -91,7 +97,7 @@ def test_extract_device_diagnostics_omits_null_and_malformed_fields() -> None:
 
 
 def test_extract_device_diagnostics_excludes_personal_and_raw_values() -> None:
-    """Only the four allowlisted diagnostics leave the profile response."""
+    """Only the allowlisted diagnostics leave the profile response."""
     profile = {
         "email": "person@example.invalid",
         "displayName": "Synthetic Person",
@@ -126,6 +132,12 @@ def test_extract_device_diagnostics_excludes_personal_and_raw_values() -> None:
             "fire_hazard": False,
             "learning_mode": False,
             "hazard_message": "No synthetic hazard",
+            "electrical_fire_hazard_level": 0,
+            "electrical_fire_hazard": False,
+            "electrical_fire_hazard_status": "none",
+            "utility_fire_hazard_level": 0,
+            "utility_fire_hazard": False,
+            "utility_fire_hazard_status": "none",
             "power_quality_hazard": False,
         }
     }
@@ -136,3 +148,73 @@ def test_extract_device_diagnostics_excludes_personal_and_raw_values() -> None:
     assert "timestampUtc" not in serialized
     assert "efhStatus" not in serialized
     assert "ufhStatus" not in serialized
+
+
+def test_extract_device_diagnostics_hazard_detectors() -> None:
+    """Electrical and utility detector levels, statuses and frozen pipe are exposed."""
+    profile = {
+        "devices": [
+            {
+                "serialNumber": "TEST-SERIAL-006",
+                "isFire": False,
+                "hasFrozenPipe": True,
+                "fireHazardStatus": {
+                    "learningMode": False,
+                    "message": "Synthetic hazard",
+                    "efhStatus": {
+                        "level": 2,
+                        "status": "Active",
+                        "message": "Synthetic electrical hazard",
+                        "timestampUtc": "2030-01-01T00:00:00Z",
+                    },
+                    "ufhStatus": {
+                        "level": 0,
+                        "status": "ReviewedNotFire",
+                        "message": "No Hazards Detected",
+                    },
+                },
+            }
+        ],
+    }
+
+    assert extract_device_diagnostics(profile) == {
+        "TEST-SERIAL-006": {
+            "fire_hazard": False,
+            "frozen_pipe": True,
+            "learning_mode": False,
+            "hazard_message": "Synthetic hazard",
+            "electrical_fire_hazard_level": 2,
+            "electrical_fire_hazard": True,
+            "electrical_fire_hazard_status": "Active",
+            "electrical_fire_hazard_message": "Synthetic electrical hazard",
+            "utility_fire_hazard_level": 0,
+            "utility_fire_hazard": False,
+            "utility_fire_hazard_status": "ReviewedNotFire",
+            "utility_fire_hazard_message": "No Hazards Detected",
+        }
+    }
+
+
+def test_extract_device_diagnostics_malformed_hazard_detectors() -> None:
+    """A missing or malformed detector block stays unknown rather than safe."""
+    profile = {
+        "devices": [
+            {
+                "serialNumber": "TEST-SERIAL-007",
+                "hasFrozenPipe": "no",
+                "fireHazardStatus": {
+                    "efhStatus": {"level": "2", "status": 5, "message": None},
+                    "ufhStatus": None,
+                },
+            },
+            {
+                "serialNumber": "TEST-SERIAL-008",
+                "fireHazardStatus": {"efhStatus": {"level": True}},
+            },
+        ],
+    }
+
+    assert extract_device_diagnostics(profile) == {
+        "TEST-SERIAL-007": {},
+        "TEST-SERIAL-008": {"electrical_fire_hazard_status": "none"},
+    }

@@ -59,15 +59,29 @@ Realtime sensors:
 
 REST profile safety entities, refreshed every 5 minutes:
 
-- Fire hazard (binary sensor)
+- Fire hazard (binary sensor), Ting's overall `isFire` flag
+- Electrical fire hazard (binary sensor), on while the electrical fire hazard
+  (EFH) detector's level is above 0
+- Utility fire hazard (binary sensor), on while the utility fire hazard (UFH)
+  detector's level is above 0
+- Frozen pipe risk (binary sensor)
 - Power quality hazard (binary sensor)
+
+The electrical and utility detectors report their own levels, so either can
+turn on while Fire hazard is still off.
 
 REST profile diagnostic entities, refreshed every 5 minutes:
 
 - Learning mode (binary sensor)
 - Hazard message (sensor)
+- Electrical / utility fire hazard level (sensors)
+- Electrical / utility fire hazard status (sensors, e.g. `ReviewedNotFire`
+  after Whisker Labs has reviewed a detection), with the detector's message
+  as an attribute
 
-Profile responses are normalized to these four values. Full device, site, and
+Ting reports a null level and status when a detector has nothing to report;
+these read as level 0 and status `none`. Profile responses are normalized to
+these values. Full device, site, and
 account profile payloads are not stored as coordinator data. If Ting omits a
 value or returns it with an unexpected type, the corresponding entity is
 unavailable rather than reporting a misleading safe state.

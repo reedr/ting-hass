@@ -33,6 +33,15 @@
       "fire_hazard": {
         "name": "Fire hazard"
       },
+      "electrical_fire_hazard": {
+        "name": "Electrical fire hazard"
+      },
+      "utility_fire_hazard": {
+        "name": "Utility fire hazard"
+      },
+      "frozen_pipe": {
+        "name": "Frozen pipe risk"
+      },
       "power_quality_hazard": {
         "name": "Power quality hazard"
       },
@@ -67,6 +76,18 @@
       },
       "voltage_max": {
         "name": "Voltage max (interval)"
+      },
+      "electrical_fire_hazard_level": {
+        "name": "Electrical fire hazard level"
+      },
+      "electrical_fire_hazard_status": {
+        "name": "Electrical fire hazard status"
+      },
+      "utility_fire_hazard_level": {
+        "name": "Utility fire hazard level"
+      },
+      "utility_fire_hazard_status": {
+        "name": "Utility fire hazard status"
       }
     }
   },

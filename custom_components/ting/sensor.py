@@ -31,6 +31,7 @@ class TingSensorEntityDescription(SensorEntityDescription):
     """Ting sensor description."""
 
     value_fn: Callable[[dict[str, Any]], Any]
+    attributes_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
 
 
 REALTIME_SENSORS: tuple[TingSensorEntityDescription, ...] = (
@@ -106,6 +107,30 @@ PROFILE_SENSORS: tuple[TingSensorEntityDescription, ...] = (
         translation_key="hazard_message",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.get("hazard_message"),
+    ),
+    *(
+        description
+        for prefix in ("electrical_fire_hazard", "utility_fire_hazard")
+        for description in (
+            TingSensorEntityDescription(
+                key=f"{prefix}_level",
+                translation_key=f"{prefix}_level",
+                entity_category=EntityCategory.DIAGNOSTIC,
+                state_class=SensorStateClass.MEASUREMENT,
+                value_fn=lambda data, key=f"{prefix}_level": data.get(key),
+            ),
+            # note: e.g. "ReviewedNotFire" after Whisker Labs has reviewed a
+            #       detection; the detector's message is an attribute.
+            TingSensorEntityDescription(
+                key=f"{prefix}_status",
+                translation_key=f"{prefix}_status",
+                entity_category=EntityCategory.DIAGNOSTIC,
+                value_fn=lambda data, key=f"{prefix}_status": data.get(key),
+                attributes_fn=lambda data, key=f"{prefix}_message": (
+                    {"message": data[key]} if key in data else None
+                ),
+            ),
+        )
     ),
 )
 
@@ -213,15 +238,25 @@ class TingProfileSensor(CoordinatorEntity[TingProfileCoordinator], TingSensor):
         return (
             self.coordinator.last_update_success
             and isinstance(data, dict)
-            and isinstance(data.get(self.entity_description.key), str)
+            and data.get(self.entity_description.key) is not None
         )
 
     @property
     def native_value(self) -> Any:
         """Return the current sensor value."""
-        return self.entity_description.value_fn(
-            (self.coordinator.data or {}).get(self._device.serial_number, {})
-        )
+        return self.entity_description.value_fn(self._device_data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return attributes, if the description provides any."""
+        if self.entity_description.attributes_fn is None:
+            return None
+        return self.entity_description.attributes_fn(self._device_data)
+
+    @property
+    def _device_data(self) -> dict[str, Any]:
+        data = (self.coordinator.data or {}).get(self._device.serial_number)
+        return data if isinstance(data, dict) else {}
 
 
 def _parse_timestamp(value: Any) -> datetime | None:

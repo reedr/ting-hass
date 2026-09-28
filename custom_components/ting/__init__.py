@@ -22,10 +22,6 @@ _LOGGER = logging.getLogger(__name__)
 
 _DEPRECATED_PROFILE_UNIQUE_ID_SUFFIXES = (
     "_fire_hazard_severity",
-    "_electrical_fire_hazard_level",
-    "_electrical_fire_hazard_status",
-    "_utility_fire_hazard_level",
-    "_utility_fire_hazard_status",
 )
 
 
